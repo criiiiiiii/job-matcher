@@ -6,7 +6,7 @@ from PyPDF2 import PdfReader
 
 st.set_page_config(page_title="Job Matcher", layout="centered")
 
-# Sidebar
+# Sidebar: OpenAI Key + Filters
 st.sidebar.title("Settings")
 openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 
@@ -16,6 +16,10 @@ work_type = st.sidebar.radio(
     ["Remote", "Hybrid", "In-Office", "All"],
     index=0
 )
+
+# New: Search Filters
+search_keywords = st.sidebar.text_input("Search Keywords", value="director")
+search_location = st.sidebar.text_input("Location", value="Remote")
 
 # Title
 st.title("🔍 AI Job Matcher")
@@ -37,18 +41,16 @@ if uploaded_file is not None:
 
 # Job Search Function
 @st.cache_data
-def search_jobs(work_type):
+def search_jobs(keywords, location, work_type):
     headers = {"User-Agent": "Mozilla/5.0"}
 
-    if work_type == "Remote":
-        url = "https://www.indeed.com/jobs?q=director&l=Remote"
-    elif work_type == "Hybrid":
-        url = "https://www.indeed.com/jobs?q=director+hybrid"
+    query = f"{keywords}"
+    if work_type == "Hybrid":
+        query += "+hybrid"
     elif work_type == "In-Office":
-        url = "https://www.indeed.com/jobs?q=director+%22on+site%22"
-    else:  # All
-        url = "https://www.indeed.com/jobs?q=director"
+        query += "+\"on site\""
 
+    url = f"https://www.indeed.com/jobs?q={query.replace(' ', '+')}&l={location.replace(' ', '+')}"
     response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.text, "html.parser")
     job_results = []
@@ -105,20 +107,6 @@ if st.button("🔎 Find Jobs"):
         st.warning("Enter your OpenAI API key in the sidebar.")
     else:
         openai.api_key = openai_api_key
-        with st.spinner(f"Searching for {work_type.lower()} jobs..."):
-            jobs = search_jobs(work_type)
-            st.success(f"✅ Found {len(jobs)} jobs.")
-            if len(jobs) == 0:
-                st.info("Try a different work type or job title.")
-            for job in jobs[:5]:
-                st.markdown(f"### {job['title']} at {job['company']}")
-                st.write(f"📍 {job['location']} | [Job Link]({job['link']})")
-
-                if st.button(f"✍️ Tailor Resume & Cover Letter for {job['title']} ({job['company']})", key=job['link']):
-                    result = generate_docs(job, resume_text)
-                    st.code(result)
-
-# Footer
-st.markdown("---")
-st.markdown("Made by [Christian Sodeikat](https://www.linkedin.com/in/christian-sodeikat/)")
-
+        with st.spinner(f"Searching {work_type.lower()} jobs for '{search_keywords}' in {search_location}..."):
+            jobs = search_jobs(search_keywords, search_location, work_type)
+            st.success(f"✅
