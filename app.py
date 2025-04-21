@@ -4,26 +4,17 @@ from bs4 import BeautifulSoup
 import openai
 from PyPDF2 import PdfReader
 
-# ✅ Must be the first Streamlit command
 st.set_page_config(page_title="Job Matcher", layout="centered")
 
-# Sidebar: OpenAI Key + Filters
+# Sidebar
 st.sidebar.title("Settings")
 openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 
-# Work type selector
-work_type = st.sidebar.radio(
-    "Work Type",
-    ["Remote", "Hybrid", "In-Office", "All"],
-    index=0
-)
+work_type = st.sidebar.radio("Work Type", ["Remote", "Hybrid", "In-Office", "All"], index=0)
+search_keywords = st.sidebar.text_input("Search Keywords", value="director mobility")
+search_location = st.sidebar.text_input("Location", value="USA")
 
-# New: Search Filters
-search_keywords = st.sidebar.text_input("Search Keywords", value="director")
-search_location = st.sidebar.text_input("Location", value="Remote")
-
-# Title
-st.title("🔍 AI Job Matcher")
+st.title("🔍 AI Job Matcher (Google Jobs Version)")
 
 # Resume Upload
 uploaded_file = st.file_uploader("Upload your resume (PDF only)", type=["pdf"])
@@ -40,39 +31,40 @@ if uploaded_file is not None:
     else:
         st.error("❌ Failed to extract text from resume. Try a different PDF.")
 
-# Job Search Function
+# Job Search via Google
 @st.cache_data
-def search_jobs(keywords, location, work_type):
-    headers = {"User-Agent": "Mozilla/5.0"}
-
-    query = f"{keywords}"
-    if work_type == "Hybrid":
-        query += "+hybrid"
-    elif work_type == "In-Office":
-        query += "+\"on site\""
-
-    url = f"https://www.indeed.com/jobs?q={query.replace(' ', '+')}&l={location.replace(' ', '+')}"
+def search_google_jobs(keywords, location, work_type):
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+    query = f"{keywords} jobs {location} site:linkedin.com/jobs OR site:indeed.com OR site:lever.co"
+    url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+    
     response = requests.get(url, headers=headers)
-
-    # DEBUG: Show URL and partial HTML response
-    st.write("🔍 URL used:", url)
-    st.code(response.text[:1000])  # Show first 1000 characters of the HTML
-
     soup = BeautifulSoup(response.text, "html.parser")
     job_results = []
 
-    for job_card in soup.select("a.tapItem"):
-        title = job_card.select_one("h2.jobTitle")
-        company = job_card.select_one("span.companyName")
-        location = job_card.select_one("div.companyLocation")
+    for g_card in soup.select("div.g"):
+        title_elem = g_card.select_one("h3")
+        link_elem = g_card.select_one("a")
+        desc_elem = g_card.select_one("div.VwiC3b")
 
-        if title and company and location:
-            job_results.append({
-                "title": title.text.strip(),
-                "company": company.text.strip(),
-                "location": location.text.strip(),
-                "link": "https://www.indeed.com" + job_card["href"]
-            })
+        if title_elem and link_elem:
+            job = {
+                "title": title_elem.get_text(),
+                "link": link_elem['href'],
+                "description": desc_elem.get_text() if desc_elem else "No description provided"
+            }
+
+            # Basic filtering based on work type keyword match
+            if work_type == "Remote" and "remote" not in job["description"].lower():
+                continue
+            elif work_type == "Hybrid" and "hybrid" not in job["description"].lower():
+                continue
+            elif work_type == "In-Office" and ("remote" in job["description"].lower() or "hybrid" in job["description"].lower()):
+                continue
+
+            job_results.append(job)
 
     return job_results
 
@@ -89,9 +81,8 @@ Given this resume:
 And this job:
 ---
 Title: {job['title']}
-Company: {job['company']}
-Location: {job['location']}
 Link: {job['link']}
+Description: {job['description']}
 ---
 
 Generate a tailored cover letter and suggested resume bullet points that match this job.
@@ -105,7 +96,7 @@ Generate a tailored cover letter and suggested resume bullet points that match t
 
     return response.choices[0].message.content
 
-# Main Logic
+# Main Button
 if st.button("🔎 Find Jobs"):
     if not uploaded_file:
         st.warning("Please upload your resume first.")
@@ -113,20 +104,8 @@ if st.button("🔎 Find Jobs"):
         st.warning("Enter your OpenAI API key in the sidebar.")
     else:
         openai.api_key = openai_api_key
-        with st.spinner(f"Searching {work_type.lower()} jobs for '{search_keywords}' in {search_location}..."):
-            jobs = search_jobs(search_keywords, search_location, work_type)
+        with st.spinner("Searching Google for jobs..."):
+            jobs = search_google_jobs(search_keywords, search_location, work_type)
             st.success(f"✅ Found {len(jobs)} jobs.")
             if len(jobs) == 0:
-                st.info("Try a different keyword, location, or work type.")
-            for job in jobs[:5]:
-                st.markdown(f"### {job['title']} at {job['company']}")
-                st.write(f"📍 {job['location']} | [Job Link]({job['link']})")
-
-                if st.button(f"✍️ Tailor Resume & Cover Letter for {job['title']} ({job['company']})", key=job['link']):
-                    result = generate_docs(job, resume_text)
-                    st.code(result)
-
-# Footer
-st.markdown("---")
-st.markdown("Made by [Christian Sodeikat](https://www.linkedin.com/in/christian-sodeikat/)")
-
+                st.info("
