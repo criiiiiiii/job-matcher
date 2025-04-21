@@ -103,4 +103,3 @@ if st.button("🔎 Find Jobs"):
 # Footer
 st.markdown("---")
 st.markdown("Made by [Christian Sodeikat](https://www.linkedin.com/in/christian-sodeikat/)")
-# force rebuild - 2025-04-10
