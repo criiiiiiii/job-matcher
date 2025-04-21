@@ -75,37 +75,4 @@ You are a career coach and resume writer.
 
 Given this resume:
 ---
-{resume_text}
----
-
-And this job:
----
-Title: {job['title']}
-Link: {job['link']}
-Description: {job['description']}
----
-
-Generate a tailored cover letter and suggested resume bullet points that match this job.
-"""
-
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.7
-    )
-
-    return response.choices[0].message.content
-
-# Main Button
-if st.button("🔎 Find Jobs"):
-    if not uploaded_file:
-        st.warning("Please upload your resume first.")
-    elif not openai_api_key:
-        st.warning("Enter your OpenAI API key in the sidebar.")
-    else:
-        openai.api_key = openai_api_key
-        with st.spinner("Searching Google for jobs..."):
-            jobs = search_google_jobs(search_keywords, search_location, work_type)
-            st.success(f"✅ Found {len(jobs)} jobs.")
-            if len(jobs) == 0:
-                st.info("
+{resume
