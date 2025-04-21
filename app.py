@@ -31,13 +31,13 @@ if uploaded_file is not None:
     else:
         st.error("❌ Failed to extract text from resume. Try a different PDF.")
 
-# SerpAPI Job Search with Fallback
+# SerpAPI Job Search with Detroit Fallback
 @st.cache_data
 def search_jobs_serpapi(keywords, location, work_type, api_key):
     # Fallback if unsupported location
     invalid_locations = ["remote", "usa", "united states", "global"]
     if location.strip().lower() in invalid_locations:
-        location = "Austin, TX"  # Default fallback
+        location = "Detroit, MI"  # ✅ New fallback
 
     url = "https://serpapi.com/search.json"
     params = {
@@ -120,3 +120,4 @@ if st.button("🔎 Find Jobs"):
 # Footer
 st.markdown("---")
 st.markdown("Made by [Christian Sodeikat](https://www.linkedin.com/in/christian-sodeikat/)")
+
