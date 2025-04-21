@@ -12,7 +12,7 @@ serpapi_key = st.sidebar.text_input("SerpAPI Key", type="password")
 
 work_type = st.sidebar.radio("Work Type", ["Remote", "Hybrid", "In-Office", "All"], index=0)
 search_keywords = st.sidebar.text_input("Search Keywords", value="director mobility")
-search_location = st.sidebar.text_input("Location", value="USA")
+search_location = st.sidebar.text_input("Location", value="Remote")
 
 st.title("🔍 AI Job Matcher (Powered by SerpAPI)")
 
@@ -31,7 +31,7 @@ if uploaded_file is not None:
     else:
         st.error("❌ Failed to extract text from resume. Try a different PDF.")
 
-# SerpAPI Job Search
+# SerpAPI Job Search with Debug Output
 @st.cache_data
 def search_jobs_serpapi(keywords, location, work_type, api_key):
     url = "https://serpapi.com/search.json"
@@ -43,7 +43,16 @@ def search_jobs_serpapi(keywords, location, work_type, api_key):
     }
 
     response = requests.get(url, params=params)
-    data = response.json()
+
+    # ✅ DEBUG: Show API request and partial response
+    st.code(f"Request URL: {response.url}")
+    st.code(response.text[:1000])
+
+    try:
+        data = response.json()
+    except:
+        st.error("❌ Failed to parse JSON response from SerpAPI.")
+        return []
 
     jobs = []
     for job in data.get("jobs_results", []):
