@@ -31,9 +31,14 @@ if uploaded_file is not None:
     else:
         st.error("❌ Failed to extract text from resume. Try a different PDF.")
 
-# SerpAPI Job Search with Debug Output
+# SerpAPI Job Search with Fallback
 @st.cache_data
 def search_jobs_serpapi(keywords, location, work_type, api_key):
+    # Fallback if unsupported location
+    invalid_locations = ["remote", "usa", "united states", "global"]
+    if location.strip().lower() in invalid_locations:
+        location = "Austin, TX"  # Default fallback
+
     url = "https://serpapi.com/search.json"
     params = {
         "engine": "google_jobs",
@@ -44,7 +49,7 @@ def search_jobs_serpapi(keywords, location, work_type, api_key):
 
     response = requests.get(url, params=params)
 
-    # ✅ DEBUG: Show API request and partial response
+    # DEBUG
     st.code(f"Request URL: {response.url}")
     st.code(response.text[:1000])
 
