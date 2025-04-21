@@ -1,6 +1,5 @@
 import streamlit as st
 import requests
-from bs4 import BeautifulSoup
 import openai
 from PyPDF2 import PdfReader
 
@@ -9,12 +8,13 @@ st.set_page_config(page_title="Job Matcher", layout="centered")
 # Sidebar
 st.sidebar.title("Settings")
 openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
+serpapi_key = st.sidebar.text_input("SerpAPI Key", type="password")
 
 work_type = st.sidebar.radio("Work Type", ["Remote", "Hybrid", "In-Office", "All"], index=0)
 search_keywords = st.sidebar.text_input("Search Keywords", value="director mobility")
 search_location = st.sidebar.text_input("Location", value="USA")
 
-st.title("🔍 AI Job Matcher (Google Jobs Version)")
+st.title("🔍 AI Job Matcher (Powered by SerpAPI)")
 
 # Resume Upload
 uploaded_file = st.file_uploader("Upload your resume (PDF only)", type=["pdf"])
@@ -31,42 +31,31 @@ if uploaded_file is not None:
     else:
         st.error("❌ Failed to extract text from resume. Try a different PDF.")
 
-# Job Search via Google
+# SerpAPI Job Search
 @st.cache_data
-def search_google_jobs(keywords, location, work_type):
-    headers = {
-        "User-Agent": "Mozilla/5.0"
+def search_jobs_serpapi(keywords, location, work_type, api_key):
+    url = "https://serpapi.com/search.json"
+    params = {
+        "engine": "google_jobs",
+        "q": f"{keywords} {work_type}",
+        "location": location,
+        "api_key": api_key
     }
-    query = f"{keywords} jobs {location} site:linkedin.com/jobs OR site:indeed.com OR site:lever.co"
-    url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
-    
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, "html.parser")
-    job_results = []
 
-    for g_card in soup.select("div.g"):
-        title_elem = g_card.select_one("h3")
-        link_elem = g_card.select_one("a")
-        desc_elem = g_card.select_one("div.VwiC3b")
+    response = requests.get(url, params=params)
+    data = response.json()
 
-        if title_elem and link_elem:
-            job = {
-                "title": title_elem.get_text(),
-                "link": link_elem['href'],
-                "description": desc_elem.get_text() if desc_elem else "No description provided"
-            }
+    jobs = []
+    for job in data.get("jobs_results", []):
+        jobs.append({
+            "title": job.get("title"),
+            "company": job.get("company_name"),
+            "location": job.get("location"),
+            "description": job.get("description", "")[:500],
+            "link": job.get("related_links", [{}])[0].get("link", job.get("job_highlights", [{}])[0].get("link", "#"))
+        })
 
-            # Basic filtering based on work type keyword match
-            if work_type == "Remote" and "remote" not in job["description"].lower():
-                continue
-            elif work_type == "Hybrid" and "hybrid" not in job["description"].lower():
-                continue
-            elif work_type == "In-Office" and ("remote" in job["description"].lower() or "hybrid" in job["description"].lower()):
-                continue
-
-            job_results.append(job)
-
-    return job_results
+    return jobs
 
 # GPT Generator
 def generate_docs(job, resume_text):
@@ -75,8 +64,10 @@ def generate_docs(job, resume_text):
         f"Given this resume:\n---\n{resume_text}\n---\n\n"
         f"And this job:\n---\n"
         f"Title: {job['title']}\n"
-        f"Link: {job['link']}\n"
+        f"Company: {job['company']}\n"
+        f"Location: {job['location']}\n"
         f"Description: {job['description']}\n"
+        f"Link: {job['link']}\n"
         f"---\n\n"
         f"Generate a tailored cover letter and suggested resume bullet points that match this job."
     )
@@ -89,23 +80,24 @@ def generate_docs(job, resume_text):
 
     return response.choices[0].message.content
 
-# Main Button
+# Main Logic
 if st.button("🔎 Find Jobs"):
     if not uploaded_file:
         st.warning("Please upload your resume first.")
-    elif not openai_api_key:
-        st.warning("Enter your OpenAI API key in the sidebar.")
+    elif not openai_api_key or not serpapi_key:
+        st.warning("Enter both OpenAI and SerpAPI keys in the sidebar.")
     else:
         openai.api_key = openai_api_key
-        with st.spinner("Searching Google for jobs..."):
-            jobs = search_google_jobs(search_keywords, search_location, work_type)
+        with st.spinner("Searching jobs using SerpAPI..."):
+            jobs = search_jobs_serpapi(search_keywords, search_location, work_type, serpapi_key)
             st.success(f"✅ Found {len(jobs)} jobs.")
             if len(jobs) == 0:
                 st.info("Try a different keyword, location, or work type.")
             for i, job in enumerate(jobs[:5]):
-                st.markdown(f"### {job['title']}")
+                st.markdown(f"### {job['title']} at {job['company']}")
+                st.write(f"📍 {job['location']}")
                 st.write(f"🔗 [Job Link]({job['link']})")
-                st.write(f"📝 {job['description'][:300]}...")
+                st.write(f"📝 {job['description']}...")
 
                 if st.button(f"✍️ Tailor Resume & Cover Letter #{i+1}", key=job['link']):
                     result = generate_docs(job, resume_text)
