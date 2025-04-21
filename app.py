@@ -10,6 +10,12 @@ st.set_page_config(page_title="Job Matcher", layout="centered")
 st.sidebar.title("Settings")
 openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 
+work_type = st.sidebar.radio(
+    "Work Type",
+    ["Remote", "Hybrid", "In-Office", "All"],
+    index=0
+)
+
 # Title
 st.title("🔍 AI Job Matcher")
 
