@@ -5,7 +5,7 @@ from PyPDF2 import PdfReader
 
 st.set_page_config(page_title="Job Matcher", layout="centered")
 
-# Sidebar: API keys and filters
+# Sidebar: Keys and Filters
 st.sidebar.title("Settings")
 openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 serpapi_key = st.sidebar.text_input("SerpAPI Key", type="password")
@@ -14,6 +14,7 @@ work_type = st.sidebar.radio("Work Type", ["Remote", "Hybrid", "In-Office", "All
 search_keywords = st.sidebar.text_input("Search Keywords", value="director mobility")
 search_location = st.sidebar.text_input("Location", value="Remote")
 
+# Posted date filter
 date_filter_map = {
     "All time": None,
     "Last 24 hours": "last_24_hours",
@@ -24,7 +25,20 @@ date_filter_map = {
 date_filter_ui = st.sidebar.selectbox("Posted Date", list(date_filter_map.keys()))
 date_filter_value = date_filter_map[date_filter_ui]
 
-st.title("🔍 AI Job Matcher (GPT Scored + Salary Estimation)")
+# Job count toggle
+job_count = st.sidebar.selectbox("Number of Jobs to Show", [10, 20, 30], index=0)
+
+# Industry/field exclusions
+all_exclusions = [
+    "Education", "Finance", "Healthcare", "Insurance", "Government", "Legal", "Retail",
+    "Nonprofit", "Accounting", "Human Resources", "Banking", "Real Estate", "Hospitality",
+    "Construction", "Customer Service", "Media", "Marketing", "Sales", "Clerical",
+    "Administration", "Religious", "Food Services", "Social Services", "Arts", "Public Sector",
+    "Transportation", "Call Center"
+]
+excluded_fields = st.sidebar.multiselect("Exclude Industries/Fields", all_exclusions)
+
+st.title("🔍 AI Job Matcher (GPT Scored + Salary Estimation + Filters)")
 
 # Resume Upload
 uploaded_file = st.file_uploader("Upload your resume (PDF only)", type=["pdf"])
@@ -40,7 +54,6 @@ if uploaded_file is not None:
     else:
         st.error("❌ Resume parsing failed.")
 
-# Job Search
 @st.cache_data
 def search_jobs_serpapi(keywords, location, work_type, date_filter, api_key):
     invalid_locations = ["remote", "usa", "united states", "global"]
@@ -66,17 +79,19 @@ def search_jobs_serpapi(keywords, location, work_type, date_filter, api_key):
         st.error("❌ SerpAPI error: " + str(e))
         return []
 
-# GPT-4 scoring
+def should_exclude(job, exclusions):
+    text = f"{job.get('title', '')} {job.get('company_name', '')} {job.get('description', '')}".lower()
+    for word in exclusions:
+        if word.lower() in text:
+            return True
+    return False
+
 def score_job_with_gpt(client, resume_text, job):
     prompt = (
-        f"You are evaluating a resume for the job below.\n\n"
+        f"You're evaluating a resume for this job:\n"
         f"Resume:\n{resume_text}\n\n"
-        f"Job Title: {job['title']}\n"
-        f"Company: {job['company']}\n"
-        f"Location: {job['location']}\n"
-        f"Description:\n{job['description']}\n\n"
-        f"Rate the resume's fit from 1 to 100, and explain in 1–2 sentences.\n"
-        f"Format:\nScore: [number]\nReason: [why]"
+        f"Job:\nTitle: {job['title']}\nCompany: {job['company']}\nLocation: {job['location']}\nDescription:\n{job['description']}\n\n"
+        f"Rate fit from 1 to 100. Format:\nScore: [number]\nReason: [why]"
     )
 
     try:
@@ -94,12 +109,10 @@ def score_job_with_gpt(client, resume_text, job):
     except Exception as e:
         return 0, f"GPT scoring error: {e}"
 
-# GPT-4 salary estimator
 def estimate_salary_with_gpt(client, title, location):
     prompt = (
-        f"Estimate a realistic U.S. salary range for the following position.\n"
-        f"Job Title: {title}\nLocation: {location}\n\n"
-        f"Format:\nEstimated Salary: $X–$Y"
+        f"Estimate a realistic salary range for this job in the U.S.:\n"
+        f"Title: {title}\nLocation: {location}\nFormat:\nEstimated Salary: $X–$Y"
     )
 
     try:
@@ -112,19 +125,12 @@ def estimate_salary_with_gpt(client, title, location):
     except Exception as e:
         return f"Salary estimate error: {e}"
 
-# GPT Resume & Cover Letter Generator
 def generate_docs(client, job, resume_text):
     prompt = (
-        f"You're a resume writer.\n\n"
-        f"Resume:\n---\n{resume_text}\n---\n\n"
-        f"Job Posting:\n---\n"
-        f"Title: {job['title']}\n"
-        f"Company: {job['company']}\n"
-        f"Location: {job['location']}\n"
-        f"Description: {job['description']}\n"
-        f"Link: {job['link']}\n"
-        f"---\n\n"
-        f"Write a tailored cover letter and suggested bullet points for this resume."
+        f"You are a resume writer.\nResume:\n---\n{resume_text}\n---\n\n"
+        f"Job Posting:\n---\nTitle: {job['title']}\nCompany: {job['company']}\n"
+        f"Location: {job['location']}\nDescription: {job['description']}\nLink: {job['link']}\n---\n\n"
+        f"Write a tailored cover letter and bullet points for this job."
     )
 
     response = client.chat.completions.create(
@@ -135,14 +141,12 @@ def generate_docs(client, job, resume_text):
 
     return response.choices[0].message.content.strip()
 
-# Main Logic
 if st.button("🔎 Find Jobs"):
     if not uploaded_file or not resume_text.strip():
         st.warning("Upload your resume first.")
     elif not openai_api_key or not serpapi_key:
         st.warning("Add both API keys.")
     else:
-        # ✅ NEW: OpenAI Client (inside logic using your API key)
         client = openai.OpenAI(api_key=openai_api_key)
 
         with st.spinner("Searching + scoring + estimating salaries..."):
@@ -154,13 +158,18 @@ if st.button("🔎 Find Jobs"):
                 st.error("No jobs found.")
             else:
                 results = []
-                for i, job in enumerate(jobs[:10]):
+                for i, job in enumerate(jobs):
+                    if len(results) >= job_count:
+                        break
+                    if should_exclude(job, excluded_fields):
+                        continue
+
                     job_info = {
                         "title": job.get("title"),
                         "company": job.get("company_name"),
                         "location": job.get("location"),
                         "description": job.get("description", ""),
-                        "link": job.get("related_links", [{}])[0].get("link", "#"),
+                        "link": job.get("job_google_link", job.get("related_links", [{}])[0].get("link", "#")),
                         "salary": job.get("detected_extensions", {}).get("salary", None)
                     }
 
@@ -181,7 +190,7 @@ if st.button("🔎 Find Jobs"):
                     st.markdown(f"### {job['title']} at {job['company']}")
                     st.write(f"📍 {job['location']}")
                     st.write(f"💰 {job['salary']}")
-                    st.write(f"🔗 [Job Link]({job['link']})")
+                    st.markdown(f"[🔗 View Job Posting]({job['link']})", unsafe_allow_html=True)
                     st.write(f"📝 {job['description'][:300]}...")
                     st.write(f"**Match Score:** {job['score']}/100")
                     st.caption(f"💬 {job['reason']}")
