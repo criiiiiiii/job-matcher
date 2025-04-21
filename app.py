@@ -37,7 +37,7 @@ def search_jobs_serpapi(keywords, location, work_type, api_key):
     # Fallback if unsupported location
     invalid_locations = ["remote", "usa", "united states", "global"]
     if location.strip().lower() in invalid_locations:
-        location = "Detroit, MI"  # ✅ New fallback
+        location = "Detroit, MI"  # ✅ Fallback
 
     url = "https://serpapi.com/search.json"
     params = {
@@ -66,7 +66,7 @@ def search_jobs_serpapi(keywords, location, work_type, api_key):
             "company": job.get("company_name"),
             "location": job.get("location"),
             "description": job.get("description", "")[:500],
-            "link": job.get("related_links", [{}])[0].get("link", job.get("job_highlights", [{}])[0].get("link", "#"))
+            "link": job.get("related_links", [{}])[0].get("link", "#")
         })
 
     return jobs
@@ -107,17 +107,19 @@ if st.button("🔎 Find Jobs"):
             st.success(f"✅ Found {len(jobs)} jobs.")
             if len(jobs) == 0:
                 st.info("Try a different keyword, location, or work type.")
-            for i, job in enumerate(jobs[:5]):
+            for i, job in enumerate(jobs[:10]):
                 st.markdown(f"### {job['title']} at {job['company']}")
                 st.write(f"📍 {job['location']}")
                 st.write(f"🔗 [Job Link]({job['link']})")
                 st.write(f"📝 {job['description']}...")
 
-                if st.button(f"✍️ Tailor Resume & Cover Letter #{i+1}", key=job['link']):
+                # ✅ Use a unique key based on index
+                if st.button(f"✍️ Tailor Resume & Cover Letter #{i+1}", key=f"tailor_button_{i}"):
                     result = generate_docs(job, resume_text)
                     st.code(result)
 
 # Footer
 st.markdown("---")
 st.markdown("Made by [Christian Sodeikat](https://www.linkedin.com/in/christian-sodeikat/)")
+
 
