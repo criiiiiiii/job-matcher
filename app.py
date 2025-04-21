@@ -3,12 +3,9 @@ import requests
 import openai
 from PyPDF2 import PdfReader
 
-# ✅ NEW OpenAI Client
-client = openai.OpenAI()
-
 st.set_page_config(page_title="Job Matcher", layout="centered")
 
-# Sidebar: Keys and filters
+# Sidebar: API keys and filters
 st.sidebar.title("Settings")
 openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 serpapi_key = st.sidebar.text_input("SerpAPI Key", type="password")
@@ -17,7 +14,6 @@ work_type = st.sidebar.radio("Work Type", ["Remote", "Hybrid", "In-Office", "All
 search_keywords = st.sidebar.text_input("Search Keywords", value="director mobility")
 search_location = st.sidebar.text_input("Location", value="Remote")
 
-# Date filter
 date_filter_map = {
     "All time": None,
     "Last 24 hours": "last_24_hours",
@@ -28,7 +24,7 @@ date_filter_map = {
 date_filter_ui = st.sidebar.selectbox("Posted Date", list(date_filter_map.keys()))
 date_filter_value = date_filter_map[date_filter_ui]
 
-st.title("🔍 AI Job Matcher (Scored + Salary Estimation)")
+st.title("🔍 AI Job Matcher (GPT Scored + Salary Estimation)")
 
 # Resume Upload
 uploaded_file = st.file_uploader("Upload your resume (PDF only)", type=["pdf"])
@@ -44,7 +40,7 @@ if uploaded_file is not None:
     else:
         st.error("❌ Resume parsing failed.")
 
-# SerpAPI Job Search
+# Job Search
 @st.cache_data
 def search_jobs_serpapi(keywords, location, work_type, date_filter, api_key):
     invalid_locations = ["remote", "usa", "united states", "global"]
@@ -71,7 +67,7 @@ def search_jobs_serpapi(keywords, location, work_type, date_filter, api_key):
         return []
 
 # GPT-4 scoring
-def score_job_with_gpt(resume_text, job):
+def score_job_with_gpt(client, resume_text, job):
     prompt = (
         f"You are evaluating a resume for the job below.\n\n"
         f"Resume:\n{resume_text}\n\n"
@@ -99,12 +95,10 @@ def score_job_with_gpt(resume_text, job):
         return 0, f"GPT scoring error: {e}"
 
 # GPT-4 salary estimator
-def estimate_salary_with_gpt(title, location):
+def estimate_salary_with_gpt(client, title, location):
     prompt = (
-        f"Estimate a realistic salary range for a U.S. position based on the title and location.\n"
-        f"Job Title: {title}\n"
-        f"Location: {location}\n\n"
-        f"Give your best estimate for a professional in this role.\n"
+        f"Estimate a realistic U.S. salary range for the following position.\n"
+        f"Job Title: {title}\nLocation: {location}\n\n"
         f"Format:\nEstimated Salary: $X–$Y"
     )
 
@@ -114,13 +108,12 @@ def estimate_salary_with_gpt(title, location):
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5
         )
-        output = response.choices[0].message.content.strip()
-        return output
+        return response.choices[0].message.content.strip()
     except Exception as e:
         return f"Salary estimate error: {e}"
 
 # GPT Resume & Cover Letter Generator
-def generate_docs(job, resume_text):
+def generate_docs(client, job, resume_text):
     prompt = (
         f"You're a resume writer.\n\n"
         f"Resume:\n---\n{resume_text}\n---\n\n"
@@ -149,7 +142,9 @@ if st.button("🔎 Find Jobs"):
     elif not openai_api_key or not serpapi_key:
         st.warning("Add both API keys.")
     else:
-        openai.api_key = openai_api_key
+        # ✅ NEW: OpenAI Client (inside logic using your API key)
+        client = openai.OpenAI(api_key=openai_api_key)
+
         with st.spinner("Searching + scoring + estimating salaries..."):
             jobs = search_jobs_serpapi(
                 search_keywords, search_location, work_type, date_filter_value, serpapi_key
@@ -169,11 +164,11 @@ if st.button("🔎 Find Jobs"):
                         "salary": job.get("detected_extensions", {}).get("salary", None)
                     }
 
-                    score, reason = score_job_with_gpt(resume_text, job_info)
+                    score, reason = score_job_with_gpt(client, resume_text, job_info)
 
                     if not job_info["salary"]:
                         job_info["salary"] = estimate_salary_with_gpt(
-                            job_info["title"], job_info["location"]
+                            client, job_info["title"], job_info["location"]
                         )
 
                     job_info.update({"score": score, "reason": reason})
@@ -192,7 +187,7 @@ if st.button("🔎 Find Jobs"):
                     st.caption(f"💬 {job['reason']}")
 
                     if st.button(f"✍️ Tailor Resume & Cover Letter #{i+1}", key=f"tailor_button_{i}"):
-                        result = generate_docs(job, resume_text)
+                        result = generate_docs(client, job, resume_text)
                         st.code(result)
 
 # Footer
