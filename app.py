@@ -26,8 +26,14 @@ resume_text = ""
 
 if uploaded_file is not None:
     reader = PdfReader(uploaded_file)
-    resume_text = "\n".join([page.extract_text() for page in reader.pages])
-    st.success("✅ Resume uploaded and parsed.")
+    resume_text = "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
+
+    if resume_text.strip():
+        st.success("✅ Resume uploaded and parsed.")
+        st.write("👀 Preview of parsed resume:")
+        st.code(resume_text[:500])  # show first 500 characters
+    else:
+        st.error("❌ Failed to extract text from your resume. Try a different PDF or use a text-based one.")
 
 # -------------------------------
 # Job Search Logic (Indeed Scraper)
