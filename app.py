@@ -10,6 +10,7 @@ st.set_page_config(page_title="Job Matcher", layout="centered")
 st.sidebar.title("Settings")
 openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 
+# Work type selector
 work_type = st.sidebar.radio(
     "Work Type",
     ["Remote", "Hybrid", "In-Office", "All"],
@@ -36,24 +37,33 @@ if uploaded_file is not None:
 
 # Job Search Function
 @st.cache_data
-def search_jobs():
-    url = "https://www.indeed.com/jobs?q=director&l=Remote&remotejob=1"
-    response = requests.get(url)
+def search_jobs(work_type):
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    if work_type == "Remote":
+        url = "https://www.indeed.com/jobs?q=director&l=Remote"
+    elif work_type == "Hybrid":
+        url = "https://www.indeed.com/jobs?q=director+hybrid"
+    elif work_type == "In-Office":
+        url = "https://www.indeed.com/jobs?q=director+%22on+site%22"
+    else:  # All
+        url = "https://www.indeed.com/jobs?q=director"
+
+    response = requests.get(url, headers=headers)
     soup = BeautifulSoup(response.text, "html.parser")
     job_results = []
 
-    for div in soup.find_all("div", class_="cardOutline"):
-        title_elem = div.find("h2", class_="jobTitle")
-        company_elem = div.find("span", class_="companyName")
-        location_elem = div.find("div", class_="companyLocation")
-        link_elem = div.find("a", href=True)
+    for job_card in soup.select("a.tapItem"):
+        title = job_card.select_one("h2.jobTitle")
+        company = job_card.select_one("span.companyName")
+        location = job_card.select_one("div.companyLocation")
 
-        if title_elem and company_elem and location_elem and link_elem:
+        if title and company and location:
             job_results.append({
-                "title": title_elem.text.strip(),
-                "company": company_elem.text.strip(),
-                "location": location_elem.text.strip(),
-                "link": "https://www.indeed.com" + link_elem["href"]
+                "title": title.text.strip(),
+                "company": company.text.strip(),
+                "location": location.text.strip(),
+                "link": "https://www.indeed.com" + job_card["href"]
             })
 
     return job_results
@@ -95,9 +105,11 @@ if st.button("🔎 Find Jobs"):
         st.warning("Enter your OpenAI API key in the sidebar.")
     else:
         openai.api_key = openai_api_key
-        with st.spinner("Searching and matching jobs..."):
-            jobs = search_jobs()
+        with st.spinner(f"Searching for {work_type.lower()} jobs..."):
+            jobs = search_jobs(work_type)
             st.success(f"✅ Found {len(jobs)} jobs.")
+            if len(jobs) == 0:
+                st.info("Try a different work type or job title.")
             for job in jobs[:5]:
                 st.markdown(f"### {job['title']} at {job['company']}")
                 st.write(f"📍 {job['location']} | [Job Link]({job['link']})")
@@ -109,3 +121,4 @@ if st.button("🔎 Find Jobs"):
 # Footer
 st.markdown("---")
 st.markdown("Made by [Christian Sodeikat](https://www.linkedin.com/in/christian-sodeikat/)")
+
