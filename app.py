@@ -3,9 +3,12 @@ import requests
 import openai
 from PyPDF2 import PdfReader
 
+# ✅ NEW OpenAI Client
+client = openai.OpenAI()
+
 st.set_page_config(page_title="Job Matcher", layout="centered")
 
-# Sidebar
+# Sidebar: Keys and filters
 st.sidebar.title("Settings")
 openai_api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 serpapi_key = st.sidebar.text_input("SerpAPI Key", type="password")
@@ -14,6 +17,7 @@ work_type = st.sidebar.radio("Work Type", ["Remote", "Hybrid", "In-Office", "All
 search_keywords = st.sidebar.text_input("Search Keywords", value="director mobility")
 search_location = st.sidebar.text_input("Location", value="Remote")
 
+# Date filter
 date_filter_map = {
     "All time": None,
     "Last 24 hours": "last_24_hours",
@@ -24,7 +28,7 @@ date_filter_map = {
 date_filter_ui = st.sidebar.selectbox("Posted Date", list(date_filter_map.keys()))
 date_filter_value = date_filter_map[date_filter_ui]
 
-st.title("🔍 AI Job Matcher (GPT Scored + Date Filter)")
+st.title("🔍 AI Job Matcher (Scored + Salary Estimation)")
 
 # Resume Upload
 uploaded_file = st.file_uploader("Upload your resume (PDF only)", type=["pdf"])
@@ -40,6 +44,7 @@ if uploaded_file is not None:
     else:
         st.error("❌ Resume parsing failed.")
 
+# SerpAPI Job Search
 @st.cache_data
 def search_jobs_serpapi(keywords, location, work_type, date_filter, api_key):
     invalid_locations = ["remote", "usa", "united states", "global"]
@@ -65,100 +70,131 @@ def search_jobs_serpapi(keywords, location, work_type, date_filter, api_key):
         st.error("❌ SerpAPI error: " + str(e))
         return []
 
+# GPT-4 scoring
 def score_job_with_gpt(resume_text, job):
     prompt = (
-        f"You are a recruiter evaluating a resume for a job opening.\n\n"
+        f"You are evaluating a resume for the job below.\n\n"
         f"Resume:\n{resume_text}\n\n"
         f"Job Title: {job['title']}\n"
         f"Company: {job['company']}\n"
         f"Location: {job['location']}\n"
         f"Description:\n{job['description']}\n\n"
-        f"Rate the resume's fit for this role from 1 to 100.\n"
-        f"Then briefly explain the score in 1-2 sentences.\n\n"
-        f"Respond in this format:\n"
-        f"Score: [number]\nReason: [explanation]"
+        f"Rate the resume's fit from 1 to 100, and explain in 1–2 sentences.\n"
+        f"Format:\nScore: [number]\nReason: [why]"
     )
 
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4
         )
         output = response.choices[0].message.content.strip()
-        st.caption(f"🧠 GPT Output:\n{output}")  # debug
         lines = output.splitlines()
-        score_line = next((line for line in lines if "score" in line.lower()), "")
-        score = int(''.join([c for c in score_line if c.isdigit()]))
-        explanation = next((line for line in lines if "reason" in line.lower()), output)
-        return score, explanation
+        score_line = next((l for l in lines if "score" in l.lower()), "")
+        score = int(''.join(c for c in score_line if c.isdigit()))
+        reason = next((l for l in lines if "reason" in l.lower()), output)
+        return score, reason
     except Exception as e:
-        return 0, f"GPT Error: {e}"
+        return 0, f"GPT scoring error: {e}"
 
+# GPT-4 salary estimator
+def estimate_salary_with_gpt(title, location):
+    prompt = (
+        f"Estimate a realistic salary range for a U.S. position based on the title and location.\n"
+        f"Job Title: {title}\n"
+        f"Location: {location}\n\n"
+        f"Give your best estimate for a professional in this role.\n"
+        f"Format:\nEstimated Salary: $X–$Y"
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5
+        )
+        output = response.choices[0].message.content.strip()
+        return output
+    except Exception as e:
+        return f"Salary estimate error: {e}"
+
+# GPT Resume & Cover Letter Generator
 def generate_docs(job, resume_text):
     prompt = (
-        f"You are a resume writer.\n\n"
-        f"Here is the resume:\n---\n{resume_text}\n---\n\n"
-        f"And the job posting:\n---\n"
+        f"You're a resume writer.\n\n"
+        f"Resume:\n---\n{resume_text}\n---\n\n"
+        f"Job Posting:\n---\n"
         f"Title: {job['title']}\n"
         f"Company: {job['company']}\n"
         f"Location: {job['location']}\n"
         f"Description: {job['description']}\n"
         f"Link: {job['link']}\n"
         f"---\n\n"
-        f"Write a tailored cover letter and bullet points for the resume to match this job."
+        f"Write a tailored cover letter and suggested bullet points for this resume."
     )
 
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7
     )
 
-    return response.choices[0].message.content
+    return response.choices[0].message.content.strip()
 
+# Main Logic
 if st.button("🔎 Find Jobs"):
     if not uploaded_file or not resume_text.strip():
-        st.warning("Please upload and parse your resume first.")
+        st.warning("Upload your resume first.")
     elif not openai_api_key or not serpapi_key:
-        st.warning("Enter both OpenAI and SerpAPI keys.")
+        st.warning("Add both API keys.")
     else:
         openai.api_key = openai_api_key
-        with st.spinner("Searching jobs and ranking them..."):
+        with st.spinner("Searching + scoring + estimating salaries..."):
             jobs = search_jobs_serpapi(
                 search_keywords, search_location, work_type, date_filter_value, serpapi_key
             )
 
             if not jobs:
-                st.error("❌ No jobs found. Try a broader filter.")
+                st.error("No jobs found.")
             else:
-                scored_jobs = []
+                results = []
                 for i, job in enumerate(jobs[:10]):
                     job_info = {
                         "title": job.get("title"),
                         "company": job.get("company_name"),
                         "location": job.get("location"),
                         "description": job.get("description", ""),
-                        "link": job.get("related_links", [{}])[0].get("link", "#")
+                        "link": job.get("related_links", [{}])[0].get("link", "#"),
+                        "salary": job.get("detected_extensions", {}).get("salary", None)
                     }
+
                     score, reason = score_job_with_gpt(resume_text, job_info)
+
+                    if not job_info["salary"]:
+                        job_info["salary"] = estimate_salary_with_gpt(
+                            job_info["title"], job_info["location"]
+                        )
+
                     job_info.update({"score": score, "reason": reason})
-                    scored_jobs.append(job_info)
+                    results.append(job_info)
 
-                scored_jobs = sorted(scored_jobs, key=lambda x: x["score"], reverse=True)
-                st.success(f"✅ Found {len(scored_jobs)} jobs (sorted by match score)")
+                results = sorted(results, key=lambda x: x["score"], reverse=True)
+                st.success(f"✅ Showing {len(results)} jobs, sorted by best match")
 
-                for i, job in enumerate(scored_jobs):
+                for i, job in enumerate(results):
                     st.markdown(f"### {job['title']} at {job['company']}")
-                    st.write(f"📍 {job['location']} | 🔗 [Job Link]({job['link']})")
+                    st.write(f"📍 {job['location']}")
+                    st.write(f"💰 {job['salary']}")
+                    st.write(f"🔗 [Job Link]({job['link']})")
                     st.write(f"📝 {job['description'][:300]}...")
                     st.write(f"**Match Score:** {job['score']}/100")
                     st.caption(f"💬 {job['reason']}")
-                    if st.button(f"✍️ Tailor Resume & Cover Letter #{i+1}", key=f"button_{i}"):
+
+                    if st.button(f"✍️ Tailor Resume & Cover Letter #{i+1}", key=f"tailor_button_{i}"):
                         result = generate_docs(job, resume_text)
                         st.code(result)
 
 # Footer
 st.markdown("---")
 st.markdown("Made by [Christian Sodeikat](https://www.linkedin.com/in/christian-sodeikat/)")
-
