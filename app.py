@@ -109,4 +109,17 @@ if st.button("🔎 Find Jobs"):
         openai.api_key = openai_api_key
         with st.spinner(f"Searching {work_type.lower()} jobs for '{search_keywords}' in {search_location}..."):
             jobs = search_jobs(search_keywords, search_location, work_type)
-            st.success(f"✅
+            st.success(f"✅ Found {len(jobs)} jobs.")
+            if len(jobs) == 0:
+                st.info("Try a different keyword, location, or work type.")
+            for job in jobs[:5]:
+                st.markdown(f"### {job['title']} at {job['company']}")
+                st.write(f"📍 {job['location']} | [Job Link]({job['link']})")
+
+                if st.button(f"✍️ Tailor Resume & Cover Letter for {job['title']} ({job['company']})", key=job['link']):
+                    result = generate_docs(job, resume_text)
+                    st.code(result)
+
+# Footer
+st.markdown("---")
+st.markdown("Made by [Christian Sodeikat](https://www.linkedin.com/in/christian-sodeikat/)")
