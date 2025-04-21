@@ -70,9 +70,47 @@ def search_google_jobs(keywords, location, work_type):
 
 # GPT Generator
 def generate_docs(job, resume_text):
-    prompt = f"""
-You are a career coach and resume writer.
+    prompt = (
+        f"You are a career coach and resume writer.\n\n"
+        f"Given this resume:\n---\n{resume_text}\n---\n\n"
+        f"And this job:\n---\n"
+        f"Title: {job['title']}\n"
+        f"Link: {job['link']}\n"
+        f"Description: {job['description']}\n"
+        f"---\n\n"
+        f"Generate a tailored cover letter and suggested resume bullet points that match this job."
+    )
 
-Given this resume:
----
-{resume
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7
+    )
+
+    return response.choices[0].message.content
+
+# Main Button
+if st.button("🔎 Find Jobs"):
+    if not uploaded_file:
+        st.warning("Please upload your resume first.")
+    elif not openai_api_key:
+        st.warning("Enter your OpenAI API key in the sidebar.")
+    else:
+        openai.api_key = openai_api_key
+        with st.spinner("Searching Google for jobs..."):
+            jobs = search_google_jobs(search_keywords, search_location, work_type)
+            st.success(f"✅ Found {len(jobs)} jobs.")
+            if len(jobs) == 0:
+                st.info("Try a different keyword, location, or work type.")
+            for i, job in enumerate(jobs[:5]):
+                st.markdown(f"### {job['title']}")
+                st.write(f"🔗 [Job Link]({job['link']})")
+                st.write(f"📝 {job['description'][:300]}...")
+
+                if st.button(f"✍️ Tailor Resume & Cover Letter #{i+1}", key=job['link']):
+                    result = generate_docs(job, resume_text)
+                    st.code(result)
+
+# Footer
+st.markdown("---")
+st.markdown("Made by [Christian Sodeikat](https://www.linkedin.com/in/christian-sodeikat/)")
